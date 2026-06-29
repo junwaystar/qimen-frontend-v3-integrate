@@ -62,11 +62,21 @@ export default function QimenLaunchPlatform() {
 
       const data = await res.json();
 
-      if (data.success) {
-        setUserName(data.username || "尊貴會員");
-        setPoints(Number(data.points) || 0);
-        setIsLoggedIn(true); 
-        setCurrentRoom("center"); 
+      if (data.success && data.user) {
+        // ★ 整合 v3:後端 /api/verify 回的 user 物件是嵌在 data.user 內
+        const u = data.user;
+        setUserName(u.username || u.user_tel || "尊貴會員");
+        setPoints(Number(u.points) || 0);
+        setIsLoggedIn(true);
+        setCurrentRoom("center");
+      } else if (data.success) {
+        // 防呆:後端若改回頂層 shape 也能運作
+        // 修復:後端 /api/verify 回 {success:true, user:{...}},username/points 在 user 物件裡
+        const u = (data.user ?? {}) as { username?: string; user_tel?: string; points?: number | string };
+        setUserName(u.username || u.user_tel || "尊貴會員");
+        setPoints(Number(u.points ?? data.points) || 0);
+        setIsLoggedIn(true);
+        setCurrentRoom("center");
       } else {
         setErrorMessage(data.message || "驗證失敗：帳號或密碼輸入錯誤");
       }
@@ -93,6 +103,8 @@ export default function QimenLaunchPlatform() {
 
   // --- 5. 各個子房間的最終起盤點擊事件 ---
   const handleBaziSubmit = async () => {
+    console.log('🔮 [Bazi-stream] submit start, points=', points, 'datetime=', baziInputs.datetime);
+
     if (points < 10) {
       alert("⚠️ 點數不足!八字命盤解析需 10 點");
       return;
@@ -105,11 +117,45 @@ export default function QimenLaunchPlatform() {
     setBaziLoading(true);
     setBaziResult(null);
 
-    // datetime-local 格式: "1981-08-13T10:30" → 改成 "1981-08-13 10:30" 餵後端
     const dateForBackend = baziInputs.datetime.replace("T", " ");
 
+    // AbortController:90 秒保險絲
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
+
+    // 即時累積結果
+    let accumulatedRaw = '';                // LLM 累積輸出(將由 FENCE 移除後 regex)
+    const sectionEmitted = new Set<number>();   // 已 emit 的段號
+    let cleanBuffer = '';                       // fence-removed buffer
+
+    // ★ 寬鬆 regex:匹配 "sectionN":"..."(允許字串含 \n)
+    // 用 [\s\S] 代替 [^"] 以支援字串內的 " 跳脫
+    // 注意:streaming 模式下,字串未閉合時不匹配 → 只 emit 已完成段
+    // 此正則是當下能被 tryParseAccumulated 使用的核心
+    // 嘗試 match 1~13 任一段,直到字串閉合(尾端有 ")
+    const SECTION_PATTERN = /"section(\d{1,2})":\s*"((?:\\.|[^\\"])*)"/g;
+
+    const tryEmitSections = (): Record<string, string> => {
+      const emitted: Record<string, string> = {};
+      let match: RegExpExecArray | null;
+      SECTION_PATTERN.lastIndex = 0;
+      while ((match = SECTION_PATTERN.exec(cleanBuffer)) !== null) {
+        const n = parseInt(match[1], 10);
+        const text = match[2];
+        if (!sectionEmitted.has(n) && n >= 1 && n <= 13) {
+          sectionEmitted.add(n);
+          // 將 \" 換回 ",\" 換回 "\\"
+          emitted[`section${n}`] = text
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, '\\')
+            .replace(/\\n/g, '\n');
+        }
+      }
+      return emitted;
+    };
+
     try {
-      const res = await fetch(`${API_BASE}/bazi`, {
+      const res = await fetch(`${API_BASE}/bazi/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -118,36 +164,102 @@ export default function QimenLaunchPlatform() {
           datetime: dateForBackend,
           birthplace: baziInputs.birthplace,
           gender: baziInputs.gender
-        })
+        }),
+        signal: controller.signal
       });
 
-      const data = await res.json();
+      clearTimeout(timeoutId);
 
-      if (data.success) {
-        // ★ 後端回 sections(13 段)→ 前端直接餵進 baziResult
-        if (data.sections) {
-          setBaziResult(data.sections);
-          // 後端權威扣點:更新本地點數 = 後端回 remainingCredits
-          if (typeof data.remainingCredits === 'number') {
-            setPoints(data.remainingCredits);
-          }
-        } else if (data.raw) {
-          // fallback:JSON 解析失敗,顯示 raw
-          setBaziResult({
-            section1: data.warning || "（後端尚未回傳結構化資料,以下為原始輸出）",
-            section2: data.raw
-          });
-          if (typeof data.remainingCredits === 'number') {
-            setPoints(data.remainingCredits);
-          }
-        }
-      } else {
-        alert(`⚠️ ${data.message || "八字解盤失敗"}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || `HTTP ${res.status}`);
       }
-    } catch (error) {
-      alert("🌐 網路異常:無法連線至後端大腦");
-      console.error('Bazi fetch error:', error);
+      if (!res.body) {
+        throw new Error('stream not available');
+      }
+
+      console.log('🔮 [Bazi-stream] HTTP OK, reading SSE stream...');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const processEvent = (raw: string) => {
+        const eventMatch = raw.match(/^event:\s*(.+)$/m);
+        const dataMatch = raw.match(/^data:\s*(.+)$/m);
+        if (!eventMatch || !dataMatch) return;
+        const event = eventMatch[1].trim();
+        let payload: any;
+        try {
+          payload = JSON.parse(dataMatch[1]);
+        } catch {
+          return;
+        }
+
+        if (event === 'pillars') {
+          console.log('🔮 [Bazi-stream] pillars:', payload);
+          setBaziResult({
+            section1: `⏳ 命主 ${payload.year} / ${payload.month} / ${payload.day} / ${payload.hour} 解讀中(預計 5~60 秒)...`
+          } as any);
+        } else if (event === 'raw') {
+          // 累積 + 嘗試 emit 已完成 sections
+          accumulatedRaw += payload.delta;
+          // 寬鬆移除 fence(可能在 LLMs 開頭/結尾出現)
+          cleanBuffer = accumulatedRaw
+            .replace(/```json/gi, '')
+            .replace(/```/g, '')
+            .replace(/^\s*\{?\s*/, m => m.includes('{') ? '{' : '');
+
+          const newSections = tryEmitSections();
+          if (Object.keys(newSections).length > 0) {
+            console.log('🔮 [Bazi-stream] emitted new sections:', Object.keys(newSections));
+            setBaziResult((prev: any) => ({
+              ...(prev || {}),
+              ...newSections
+            }));
+          }
+        } else if (event === 'done') {
+          console.log('🔮 [Bazi-stream] done, remainingCredits=', payload.remainingCredits);
+          if (typeof payload.remainingCredits === 'number') {
+            setPoints(payload.remainingCredits);
+          }
+          // 最終整段 raw 也丟進去,讓 LLM 偶爾沒回完整 JSON 時,BaziRoom 仍能用 _raw 顯示
+          setBaziResult((prev: any) => ({
+            ...(prev || {}),
+            _raw: accumulatedRaw
+          }));
+        } else if (event === 'error') {
+          throw new Error(payload.message || '上游串流錯誤');
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let sepIdx;
+        while ((sepIdx = buffer.indexOf('\n\n')) !== -1) {
+          const eventBlock = buffer.substring(0, sepIdx);
+          buffer = buffer.substring(sepIdx + 2);
+          processEvent(eventBlock);
+        }
+      }
+      if (buffer.trim()) {
+        processEvent(buffer);
+      }
+
+      console.log('🔮 [Bazi-stream] stream complete');
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.error('❌ [Bazi-stream] timeout 90s');
+        alert("⏰ 排盤逾時(90s),請重試");
+      } else {
+        console.error('❌ [Bazi-stream] error:', error);
+        alert(`🌐 網路異常:${error.message || '無法連線至後端大腦'}`);
+      }
     } finally {
+      console.log('🔮 [Bazi-stream] finally: setBaziLoading(false)');
       setBaziLoading(false);
     }
   };
