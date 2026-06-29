@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+
+/* 🌟 物理對齊核心：將元件層插在 utilities 之前，強迫 Next.js 優先吃進科技玄學自訂衣服，徹底擊斃跑版 Bug */
+@layer components {
+  /* 科技玄學網格背景 */
+  .tech-bg {
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23f2c94c' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  .text-glow-gold {
+    color: var(--text-glow-gold);
+    text-shadow: 0 0 10px rgba(242, 201, 76, 0.8), 0 0 20px rgba(242, 201, 76, 0.4);
+  }
+
+  .text-glow-orange {
+    color: var(--text-glow-orange-red);
+    text-shadow: 0 0 10px rgba(242, 80, 26, 0.8), 0 0 20px rgba(242, 80, 26, 0.5);
+  }
+
+  .neon-border {
+    border: 1px solid rgba(242, 201, 76, 0.4);
+    box-shadow: var(--neon-box-gold);
+    background: rgba(5, 12, 38, 0.85);
+    backdrop-filter: blur(10px);
+  }
+
+  .neon-border-orange {
+    border: 1px solid rgba(242, 80, 26, 0.5);
+    box-shadow: var(--neon-box-orange-red);
+    background: rgba(5, 12, 38, 0.9);
+  }
+
+  .neon-btn {
+    background: linear-gradient(180deg, rgba(242,201,76,0.12) 0%, rgba(242,201,76,0.06) 100%);
+    border: 1px solid #f2c94c;
+    color: #f2e1ac;
+    text-shadow: 0 0 5px rgba(242, 201, 76, 0.5);
+    transition: all 0.3s ease;
+  }
+
+  .neon-btn:hover:not(:disabled) {
+    box-shadow: 0 0 25px rgba(242, 201, 76, 0.7), inset 0 0 12px rgba(242, 201, 76, 0.4);
+    transform: translateY(-2px);
+    background: rgba(242, 201, 76, 0.2);
+  }
+
+  .neon-btn:disabled {
+    border-color: rgba(242, 201, 76, 0.2);
+    color: rgba(242, 225, 172, 0.3);
+    text-shadow: none;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+
+  .neon-input {
+    background: rgba(5, 12, 38, 0.95);
+    border: 1px solid rgba(242, 201, 76, 0.4);
+    color: #f2e1ac;
+    transition: all 0.3s ease;
+  }
+
+  .neon-input:focus {
+    outline: none;
+    border-color: #f2c94c;
+    box-shadow: inset 0 0 10px rgba(242, 201, 76, 0.3), 0 0 10px rgba(242, 201, 76, 0.2);
+  }
+}
+
+@tailwind utilities;
+
+:root {
+  --bg-deep-navy: #050c26;
+  --text-glow-gold: #f2e1ac;
+  --text-glow-orange-red: #f2501a;
+  --text-off-yellow: #f0e6c2;
+  --neon-border-gold: 0 0 10px #f2c94c, 0 0 20px rgba(242, 201, 76, 0.4);
+  --neon-box-gold: inset 0 0 15px rgba(242, 225, 172, 0.1), 0 0 20px rgba(242, 225, 172, 0.15);
+  --neon-box-orange-red: inset 0 0 15px rgba(242, 80, 26, 0.15), 0 0 20px rgba(242, 80, 26, 0.2);
+}
+
+body {
+  background-color: var(--bg-deep-navy);
+  color: var(--text-off-yellow);
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  margin: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+@keyframes bagua-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.spin-bagua {
+  animation: bagua-spin 25s linear infinite;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+input, select, button {
+  font-size: 16px !important;
+}
