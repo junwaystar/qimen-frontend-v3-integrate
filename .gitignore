@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+.vercel/
+
+# Hardhat
+artifacts/
+
+# Secrets
+.env
+.env.local
+
+# Misc
+.DS_Store
+*.log
+npm-debug.log*
